@@ -1,53 +1,68 @@
-import { useEffect, useState } from "react";
-import Login from "./pages/Login";
-import ProductDetails from "./pages/ProductDetails";
+import { AuthProvider } from "./context/AuthContext";
+import { CartProvider } from "./context/CartContext";
+import { ToastProvider } from "./context/ToastContext";
+import { usePathname, matchPath } from "./utils/router";
+import Header from "./components/Header";
+import ProtectedRoute from "./components/ProtectedRoute";
+import EmptyState from "./components/EmptyState";
+
 import Products from "./pages/Products";
+import ProductDetails from "./pages/ProductDetails";
+import Login from "./pages/Login";
 import Register from "./pages/Register";
-import { getStoredUser, login, logout, register } from "./services/authService";
+import Cart from "./pages/Cart";
+import Checkout from "./pages/Checkout";
+import Orders from "./pages/Orders";
+import OrderDetail from "./pages/OrderDetail";
+import Wishlist from "./pages/Wishlist";
+import Notifications from "./pages/Notifications";
+import SellerDashboard from "./pages/seller/SellerDashboard";
+import SellerProducts from "./pages/seller/SellerProducts";
+import SellerProductForm from "./pages/seller/SellerProductForm";
+import SellerOrders from "./pages/seller/SellerOrders";
 
-function navigate(path) {
-  window.history.pushState({}, "", path);
-  window.dispatchEvent(new PopStateEvent("popstate"));
-}
+// Every route the app understands, in the order they should be checked.
+// `params` lets a page read the piece captured by ":name" in the pattern.
+const ROUTES = [
+  { pattern: "/", render: () => <Products /> },
+  { pattern: "/products/:id", render: (params) => <ProductDetails productId={params.id} /> },
+  { pattern: "/login", render: () => <Login /> },
+  { pattern: "/register", render: () => <Register /> },
+  { pattern: "/cart", render: () => <ProtectedRoute allowedRoles={["customer"]}><Cart /></ProtectedRoute> },
+  { pattern: "/checkout", render: () => <ProtectedRoute allowedRoles={["customer"]}><Checkout /></ProtectedRoute> },
+  { pattern: "/orders", render: () => <ProtectedRoute allowedRoles={["customer"]}><Orders /></ProtectedRoute> },
+  { pattern: "/orders/:id", render: (params) => <ProtectedRoute allowedRoles={["customer"]}><OrderDetail orderId={params.id} /></ProtectedRoute> },
+  { pattern: "/wishlist", render: () => <ProtectedRoute allowedRoles={["customer"]}><Wishlist /></ProtectedRoute> },
+  { pattern: "/notifications", render: () => <ProtectedRoute allowedRoles={["customer", "seller"]}><Notifications /></ProtectedRoute> },
+  { pattern: "/seller/dashboard", render: () => <ProtectedRoute allowedRoles={["seller"]}><SellerDashboard /></ProtectedRoute> },
+  { pattern: "/seller/products", render: () => <ProtectedRoute allowedRoles={["seller"]}><SellerProducts /></ProtectedRoute> },
+  { pattern: "/seller/products/new", render: () => <ProtectedRoute allowedRoles={["seller"]}><SellerProductForm /></ProtectedRoute> },
+  { pattern: "/seller/products/:id/edit", render: (params) => <ProtectedRoute allowedRoles={["seller"]}><SellerProductForm productId={params.id} /></ProtectedRoute> },
+  { pattern: "/seller/orders", render: () => <ProtectedRoute allowedRoles={["seller"]}><SellerOrders /></ProtectedRoute> },
+];
 
-function usePathname() {
-  const [pathname, setPathname] = useState(window.location.pathname);
-  useEffect(() => {
-    const update = () => setPathname(window.location.pathname);
-    window.addEventListener("popstate", update);
-    return () => window.removeEventListener("popstate", update);
-  }, []);
-  return pathname;
+function RouteOutlet() {
+  const pathname = usePathname();
+
+  for (const route of ROUTES) {
+    const params = matchPath(route.pattern, pathname);
+    if (params) return route.render(params);
+  }
+
+  return <EmptyState title="Page not found" description="The page you're looking for doesn't exist." />;
 }
 
 export default function App() {
-  const pathname = usePathname();
-  const [user, setUser] = useState(getStoredUser);
-  const productMatch = pathname.match(/^\/products\/([^/]+)$/);
-
-  async function handleLogin(details) {
-    const result = await login(details);
-    setUser(result.user);
-    navigate("/products");
-  }
-  function handleLogout() {
-    logout();
-    setUser(null);
-    navigate("/products");
-  }
-
-  let content;
-  if (productMatch) content = <ProductDetails productId={productMatch[1]} user={user} onBack={() => navigate("/products")} onLogin={() => navigate("/login")} />;
-  else if (pathname === "/login") content = <Login onLogin={handleLogin} onShowRegister={() => navigate("/register")} />;
-  else if (pathname === "/register") content = <Register onRegister={register} onShowLogin={() => navigate("/login")} />;
-  else content = <Products onViewProduct={(id) => navigate(`/products/${id}`)} />;
-
-  return <main className="app-shell">
-    <header className="site-header"><button className="brand" onClick={() => navigate("/products")}><span>EC</span><p>E-Commerce<br />Portal</p></button><nav>
-      <button className="nav-link" onClick={() => navigate("/products")}>Products</button>
-      {user ? <><span className="user-label">{user.name}</span><button className="nav-link" onClick={handleLogout}>Log out</button></>
-        : <button className="nav-link" onClick={() => navigate("/login")}>Sign in</button>}
-    </nav></header>
-    {content}
-  </main>;
+  return (
+    <AuthProvider>
+      <ToastProvider>
+        <CartProvider>
+          <main className="app-shell">
+            <Header />
+            <RouteOutlet />
+          </main>
+        </CartProvider>
+      </ToastProvider>
+    </AuthProvider>
+  );
 }

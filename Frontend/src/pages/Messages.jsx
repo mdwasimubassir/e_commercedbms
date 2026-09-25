@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { getConversations } from "../services/deliveryService";
+import { getConversations, deleteConversationMessages } from "../services/deliveryService";
 import DeliveryChat from "../components/DeliveryChat";
 import Spinner from "../components/Spinner";
 import EmptyState from "../components/EmptyState";
@@ -97,10 +97,44 @@ export default function Messages() {
     fetchConversations();
   }, []);
 
-  // Live synchronization: when a message arrives or order updates, refresh list silently
-  useLiveSync(["message_sent", "order_updated"], () => {
+  // Live synchronization: when a message arrives, order updates, or conversation cleared, refresh list silently
+  useLiveSync(["message_sent", "message_deleted", "conversation_cleared", "order_updated"], () => {
     fetchConversations(true);
   }, 5000);
+
+  const handleDeleteConversation = async (conv) => {
+    const isSupport = conv.type === "support";
+    const target = isSupport ? conv.conversation_id : conv.order_id;
+    const title = isSupport ? (conv.title || "this Support thread") : `Order #${conv.order_id}`;
+
+    const confirmMsg =
+      user?.role === "admin"
+        ? `Are you sure you want to permanently delete ${title}? All messages in this conversation will be permanently removed.`
+        : `Delete conversation for ${title} from your account? The messages will remain visible to other participants unless they delete them too.`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      const params = isSupport
+        ? { recipientRole: conv.recipient_role, recipientId: conv.recipient_id }
+        : {};
+      await deleteConversationMessages(target, params);
+      triggerLiveSync("conversation_cleared", { orderId: conv.order_id, target });
+      fetchConversations(true);
+
+      const isCurrentSelected =
+        selectedConv &&
+        (isSupport
+          ? selectedConv.type === "support" && selectedConv.conversation_id === conv.conversation_id
+          : selectedConv.type === "order" && String(selectedConv.order_id) === String(conv.order_id));
+
+      if (isCurrentSelected) {
+        setSelectedConv(null);
+      }
+    } catch (e) {
+      alert(e.message || "Failed to delete conversation.");
+    }
+  };
 
   const handleSelect = (conv) => {
     setSelectedConv(conv);
@@ -179,9 +213,28 @@ export default function Messages() {
                     <strong className="conv-title">
                       {c.type === "support" ? `🛡️ ${c.title || "Admin Support"}` : `📦 Order #${c.order_id}`}
                     </strong>
-                    {c.unread_count > 0 && (
-                      <span className="unread-badge">{c.unread_count} new</span>
-                    )}
+                    <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                      {c.unread_count > 0 && (
+                        <span className="unread-badge">{c.unread_count} new</span>
+                      )}
+                      {(user?.role === "admin" || c.type === "order") && (
+                        <button
+                          type="button"
+                          className="conv-delete-btn"
+                          title={
+                            user?.role === "admin"
+                              ? "Delete this conversation"
+                              : "Delete conversation from your account"
+                          }
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteConversation(c);
+                          }}
+                        >
+                          🗑
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <span className="conv-party">{otherParty}</span>
                   {c.last_message && (

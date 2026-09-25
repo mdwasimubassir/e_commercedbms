@@ -3,7 +3,9 @@ import { useAuth } from "../context/AuthContext";
 import {
   getDeliveryMessages,
   sendDeliveryMessage,
-  getOrderParticipants
+  getOrderParticipants,
+  deleteDeliveryMessage,
+  deleteConversationMessages
 } from "../services/deliveryService";
 import Spinner from "./Spinner";
 import { useLiveSync, triggerLiveSync } from "../hooks/useLiveSync";
@@ -41,6 +43,7 @@ export default function DeliveryChat({
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [deletingMessageId, setDeletingMessageId] = useState(null);
 
   // Modern scroll management states
   const messagesContainerRef = useRef(null);
@@ -188,8 +191,8 @@ export default function DeliveryChat({
     }
   }, [orderId, selectedRole, selectedId, supportMode]);
 
-  // Live sync updates (Listen to message_sent and order_updated only, NOT message_read to prevent loops)
-  useLiveSync(["message_sent", "order_updated"], (payload) => {
+  // Live sync updates (Listen to message_sent, message_deleted, conversation_cleared, and order_updated)
+  useLiveSync(["message_sent", "message_deleted", "conversation_cleared", "order_updated"], (payload) => {
     if (!payload || !payload.orderId || String(payload.orderId) === String(orderId)) {
       fetchMessages(false);
       // If deliveryman was assigned, refresh participants
@@ -200,6 +203,52 @@ export default function DeliveryChat({
       }
     }
   }, 5000);
+
+  const handleDeleteMessage = async (msgId) => {
+    if (
+      !window.confirm(
+        "Delete this message from your account? It will remain visible to other participants unless they delete it too."
+      )
+    )
+      return;
+    setDeletingMessageId(msgId);
+    try {
+      await deleteDeliveryMessage(msgId);
+      setMessages((prev) => prev.filter((m) => m.message_id !== msgId));
+      triggerLiveSync("message_deleted", { orderId, messageId: msgId });
+    } catch (err) {
+      setError(err.message || "Failed to delete message.");
+    } finally {
+      setDeletingMessageId(null);
+    }
+  };
+
+  const handleClearConversation = async () => {
+    const isSupport = supportMode || !orderId;
+    const target = isSupport
+      ? `support_${selectedRole}_${selectedId}`
+      : orderId;
+
+    if (!target) return;
+
+    const confirmMsg =
+      user?.role === "admin"
+        ? "Are you sure you want to delete this entire conversation? All messages will be permanently removed."
+        : "Delete this conversation from your account? The messages will remain visible to other participants unless they delete them too.";
+
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      const params = isSupport
+        ? { recipientRole: selectedRole, recipientId: selectedId }
+        : {};
+      await deleteConversationMessages(target, params);
+      setMessages([]);
+      triggerLiveSync("conversation_cleared", { orderId, target });
+    } catch (err) {
+      setError(err.message || "Failed to clear conversation.");
+    }
+  };
 
   // Smart Auto-Scroll Behavior:
   // 1. Initial load -> instant jump to bottom (behavior: 'auto')
@@ -366,11 +415,24 @@ export default function DeliveryChat({
             <h4>💬 {headerTitle}</h4>
             <span className="chat-sub">{headerSubtitle}</span>
           </div>
-          {onClose && (
-            <button type="button" className="text-button" onClick={onClose}>
-              ✕ Close
-            </button>
-          )}
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            {(user?.role === "admin" || (orderId && selectedRole !== "admin")) && messages.length > 0 && (
+              <button
+                type="button"
+                className="text-button"
+                style={{ fontSize: "0.82rem", color: "#dc2626" }}
+                title={user?.role === "admin" ? "Delete conversation" : "Delete this conversation from your account"}
+                onClick={handleClearConversation}
+              >
+                {user?.role === "admin" ? "🗑 Delete conversation" : "🗑 Clear chat for me"}
+              </button>
+            )}
+            {onClose && (
+              <button type="button" className="text-button" onClick={onClose}>
+                ✕ Close
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Participant Switcher Tabs for Order */}
@@ -458,34 +520,57 @@ export default function DeliveryChat({
             const prevDateStr = idx > 0 ? formatMessageDate(messages[idx - 1]?.created_at) : null;
             const showDateDivider = currentDateStr && currentDateStr !== prevDateStr;
 
+            const isAdminSupportMessage =
+              m.sender_role === "admin" ||
+              m.recipient_role === "admin" ||
+              m.order_id === null ||
+              supportMode ||
+              selectedRole === "admin";
+
+            // Per-user soft deletion: anyone can delete their own text or any message from their account.
+            // It will remain visible on the other end unless the other person deletes it.
+            const canDelete = true;
+
             return (
               <div key={m.message_id || `msg_${idx}`} className="chat-message-group">
-                {showDateDivider && (
-                  <div className="chat-date-divider">
-                    <span>{currentDateStr}</span>
-                  </div>
-                )}
-                <div className={`chat-message-row ${isMe ? "row-me" : "row-them"}`}>
-                  <div className={`chat-bubble ${isMe ? "bubble-me" : "bubble-them"}`}>
-                    <div className="bubble-meta">
-                      <strong>{senderLabel}</strong>
-                      <div className="bubble-time-status">
-                        {timeStr && <span className="bubble-time">{timeStr}</span>}
-                        {isMe && (
-                          <span
-                            className={`msg-status-check ${m.is_read ? "status-read" : "status-sent"}`}
-                            title={m.is_read ? "Read" : "Sent"}
-                          >
-                            {m.is_read ? "✓✓" : "✓"}
-                          </span>
-                        )}
+                    {showDateDivider && (
+                      <div className="chat-date-divider">
+                        <span>{currentDateStr}</span>
+                      </div>
+                    )}
+                    <div className={`chat-message-row ${isMe ? "row-me" : "row-them"}`}>
+                      <div className={`chat-bubble ${isMe ? "bubble-me" : "bubble-them"}`}>
+                        <div className="bubble-meta">
+                          <strong>{senderLabel}</strong>
+                          <div className="bubble-time-status">
+                            {timeStr && <span className="bubble-time">{timeStr}</span>}
+                            {isMe && (
+                              <span
+                                className={`msg-status-check ${m.is_read ? "status-read" : "status-sent"}`}
+                                title={m.is_read ? "Read" : "Sent"}
+                              >
+                                {m.is_read ? "✓✓" : "✓"}
+                              </span>
+                            )}
+                            {canDelete && (
+                              <button
+                                type="button"
+                                className="msg-delete-btn"
+                                title="Delete message"
+                                aria-label="Delete message"
+                                onClick={() => handleDeleteMessage(m.message_id)}
+                                disabled={deletingMessageId === m.message_id}
+                              >
+                                {deletingMessageId === m.message_id ? "…" : "🗑"}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <p className="bubble-text">{m.message}</p>
                       </div>
                     </div>
-                    <p className="bubble-text">{m.message}</p>
                   </div>
-                </div>
-              </div>
-            );
+                );
           })
         )}
 

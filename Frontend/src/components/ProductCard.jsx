@@ -32,11 +32,15 @@ export default function ProductCard({ product, onViewDetails }) {
         )}
       </div>
       <div className="product-card-content">
-        <p className="category-tag">{product.category_name}</p>
+        <div className="product-card-top-row">
+          <p className="category-tag">{product.category_name}</p>
+          <span className="product-id-badge">ID: #{product.product_id}</span>
+        </div>
         <h2>{product.name}</h2>
         <p className="product-description">{shortDescription(product.description)}</p>
         <div className="product-meta">
           <strong>{money(product.price)}</strong>
+          <span className="product-sold-badge">Sold: {product.sold_quantity ?? 0}</span>
           <span className={inStock ? "in-stock" : "out-of-stock"}>{inStock ? `${product.stock} in stock` : "Out of stock"}</span>
         </div>
         <button onClick={() => onViewDetails(product.product_id)}>View details</button>

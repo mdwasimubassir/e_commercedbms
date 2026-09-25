@@ -209,7 +209,10 @@ CREATE TABLE reviews (
 
     CONSTRAINT fk_reviews_product
         FOREIGN KEY (product_id)
-        REFERENCES products (product_id)
+        REFERENCES products (product_id),
+
+    CONSTRAINT uq_reviews_customer_product
+        UNIQUE (customer_id, product_id)
 );
 
 
@@ -268,6 +271,29 @@ CREATE TABLE delivery_messages (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_delivery_messages_unread ON delivery_messages (recipient_role, recipient_id, is_read);
+
+CREATE TABLE IF NOT EXISTS message_deletions (
+    deletion_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    message_id BIGINT NOT NULL REFERENCES delivery_messages(message_id) ON DELETE CASCADE,
+    user_role VARCHAR(20) NOT NULL CHECK (user_role IN ('customer', 'seller', 'deliveryman', 'admin')),
+    user_id BIGINT NOT NULL,
+    deleted_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_message_deletion_per_user UNIQUE (message_id, user_role, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_message_deletions_lookup ON message_deletions (message_id, user_role, user_id);
+CREATE INDEX IF NOT EXISTS idx_message_deletions_user ON message_deletions (user_role, user_id);
+
+CREATE TABLE IF NOT EXISTS conversation_deletions (
+    deletion_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    order_id BIGINT NOT NULL REFERENCES orders(order_id) ON DELETE CASCADE,
+    user_role VARCHAR(20) NOT NULL CHECK (user_role IN ('customer', 'seller', 'deliveryman', 'admin')),
+    user_id BIGINT NOT NULL,
+    deleted_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_conv_deletion UNIQUE (order_id, user_role, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_conv_deletions_lookup ON conversation_deletions (order_id, user_role, user_id);
+
+
 
 CREATE TABLE delivery_requests (
     delivery_request_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -475,3 +501,22 @@ BEGIN
     LIMIT 1;
 END;
 $$ LANGUAGE plpgsql;
+
+-- FUNCTION 3: get_product_sold_quantity
+-- Computes the total units of a product sold in completed/delivered orders
+CREATE OR REPLACE FUNCTION get_product_sold_quantity(p_product_id BIGINT)
+RETURNS INTEGER AS $$
+DECLARE
+    v_sold INTEGER;
+BEGIN
+    SELECT COALESCE(SUM(oi.quantity), 0)::INTEGER
+    INTO v_sold
+    FROM order_items oi
+    JOIN orders o ON o.order_id = oi.order_id
+    WHERE oi.product_id = p_product_id
+      AND (o.status = 'Delivered' OR o.delivery_status = 'delivered');
+
+    RETURN v_sold;
+END;
+$$ LANGUAGE plpgsql STABLE;
+

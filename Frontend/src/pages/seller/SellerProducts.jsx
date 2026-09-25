@@ -59,14 +59,16 @@ export default function SellerProducts() {
         <div className="table-wrap">
           <table className="data-table">
             <thead>
-              <tr><th>Product</th><th>Category</th><th>Price</th><th>Stock</th><th>Status</th><th></th></tr>
+              <tr><th>ID</th><th>Product</th><th>Sold</th><th>Category</th><th>Price</th><th>Stock</th><th>Status</th><th>Actions</th></tr>
             </thead>
             <tbody>
               {filtered.map((product) => {
                 const isPaused = product.status === "paused";
                 return (
                   <tr key={product.product_id}>
-                    <td>{product.name}</td>
+                    <td><span className="product-id-badge">#{product.product_id}</span></td>
+                    <td><strong>{product.name}</strong></td>
+                    <td><span className="sold-count-badge">{product.sold_quantity ?? 0}</span></td>
                     <td>{product.category_name}</td>
                     <td>{money(product.price)}</td>
                     <td className={Number(product.stock) <= 5 ? "out-of-stock" : ""}>{product.stock}</td>

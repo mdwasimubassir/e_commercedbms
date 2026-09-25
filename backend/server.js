@@ -54,6 +54,7 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/delivery", deliveryRoutes);
 app.use("/api/delivery-messages", deliveryMessageRoutes);
+app.use("/api/delivery/messages", deliveryMessageRoutes);
 app.use("/api/events", eventRoutes);
 
 // Keep malformed JSON responses consistent with the API's JSON error format.

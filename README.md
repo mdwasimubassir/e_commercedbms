@@ -68,4 +68,4 @@ cd "C:\2-1 code\e_commercedbms_RECOVERED\Frontend"
 npm install
 npm run dev
 Manual flow: register a seller, sign in as the seeded admin, approve/reject in `/admin`, then log in as that seller and open Notifications. Approved sellers can access seller screens; pending/rejected sellers receive a backend `403` for every `/api/seller/*` request.
-//last
+//last//

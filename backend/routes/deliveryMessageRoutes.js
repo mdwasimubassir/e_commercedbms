@@ -10,5 +10,7 @@ router.get("/order-participants", controller.getOrderParticipants);
 router.patch("/read", controller.markAsRead);
 router.get("/", controller.getMessages);
 router.post("/", controller.sendMessage);
+router.delete("/conversations/:orderId", controller.deleteConversation);
+router.delete("/:messageId", controller.deleteMessage);
 
 module.exports = router;

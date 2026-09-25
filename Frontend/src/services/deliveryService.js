@@ -52,3 +52,16 @@ export const markDeliveryMessagesRead = (arg, recipientRole, recipientId) => {
   }
   return apiRequest("/api/delivery-messages/read", { method: "PATCH", auth: true, body });
 };
+
+export const deleteDeliveryMessage = (messageId) =>
+  apiRequest(`/api/delivery-messages/${messageId}`, { method: "DELETE", auth: true });
+
+export const deleteConversationMessages = (target, params = {}) => {
+  const query = new URLSearchParams(params).toString();
+  return apiRequest(`/api/delivery-messages/conversations/${target}${query ? `?${query}` : ""}`, {
+    method: "DELETE",
+    auth: true
+  });
+};
+
+

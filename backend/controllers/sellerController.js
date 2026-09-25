@@ -71,7 +71,8 @@ exports.getSellerProducts = async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT p.product_id, p.name, p.description, p.price, p.stock, p.image, p.status,
-                    c.category_id, c.category_name
+                    c.category_id, c.category_name,
+                    COALESCE(get_product_sold_quantity(p.product_id), 0) AS sold_quantity
              FROM products p
              INNER JOIN categories c ON c.category_id = p.category_id
              WHERE p.seller_id = $1

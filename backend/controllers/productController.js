@@ -14,7 +14,8 @@ const productSelect = `
         s.seller_id,
         s.name AS seller_name,
         s.email AS seller_email,
-        s.phone AS seller_phone
+        s.phone AS seller_phone,
+        COALESCE(get_product_sold_quantity(p.product_id), 0) AS sold_quantity
     FROM products p
     INNER JOIN categories c ON c.category_id = p.category_id
     INNER JOIN sellers s ON s.seller_id = p.seller_id

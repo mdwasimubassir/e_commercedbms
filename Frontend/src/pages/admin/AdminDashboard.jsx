@@ -584,6 +584,7 @@ export default function AdminDashboard() {
                 <thead>
                   <tr>
                     <th>Product</th>
+                    <th>Sold</th>
                     <th>Category</th>
                     <th>Price</th>
                     <th>Stock</th>
@@ -600,7 +601,10 @@ export default function AdminDashboard() {
                       <tr key={p.product_id} className={isPaused ? "row-paused" : ""}>
                         <td>
                           <strong>{p.name}</strong>
-                          <span className="table-sub">ID #{p.product_id}</span>
+                          <span className="table-sub">Product ID: #{p.product_id}</span>
+                        </td>
+                        <td>
+                          <span className="sold-count-badge">{p.sold_quantity ?? 0}</span>
                         </td>
                         <td>{p.category_name}</td>
                         <td>{money(p.price)}</td>

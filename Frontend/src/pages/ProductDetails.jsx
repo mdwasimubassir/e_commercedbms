@@ -3,7 +3,7 @@ import ProductImage from "../components/ProductImage";
 import Spinner from "../components/Spinner";
 import StarRating from "../components/StarRating";
 import { getProduct } from "../services/productService";
-import { getProductReviews, createReview } from "../services/reviewService";
+import { getProductReviews, createReview, checkReviewEligibility } from "../services/reviewService";
 import { addCartItem } from "../services/cartService";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
@@ -31,6 +31,8 @@ export default function ProductDetails({ productId }) {
   const [reviewForm, setReviewForm] = useState({ rating: 5, comment: "" });
   const [reviewError, setReviewError] = useState("");
   const [submittingReview, setSubmittingReview] = useState(false);
+  const [eligibility, setEligibility] = useState(null);
+  const [eligibilityLoading, setEligibilityLoading] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -59,6 +61,20 @@ export default function ProductDetails({ productId }) {
       .catch(() => { if (active) setReviewsStatus("error"); });
     return () => { active = false; };
   }, [productId]);
+
+  useEffect(() => {
+    let active = true;
+    if (user?.role === "customer") {
+      setEligibilityLoading(true);
+      checkReviewEligibility(productId)
+        .then((res) => { if (active) setEligibility(res); })
+        .catch(() => { if (active) setEligibility(null); })
+        .finally(() => { if (active) setEligibilityLoading(false); });
+    } else {
+      setEligibility(null);
+    }
+    return () => { active = false; };
+  }, [productId, user]);
 
   async function handleAddToCart() {
     if (!user) { setMessage("Please log in as a customer before adding an item to your cart."); return; }
@@ -90,6 +106,11 @@ export default function ProductDetails({ productId }) {
       const refreshed = await getProductReviews(productId);
       setReviewData(refreshed);
       setReviewForm({ rating: 5, comment: "" });
+      setEligibility({
+        eligible: false,
+        reason: "already_reviewed",
+        message: "You have already reviewed this product."
+      });
       showToast("Review posted");
     } catch (error) {
       setReviewError(error.message);
@@ -133,7 +154,10 @@ export default function ProductDetails({ productId }) {
           )}
         </div>
         <div className="details-content">
-          <p className="category-tag">{product.category_name}</p>
+          <div className="details-header-meta">
+            <p className="category-tag">{product.category_name}</p>
+            <span className="product-id-tag">Product ID: #{product.product_id}</span>
+          </div>
           <h1>{product.name}</h1>
           {reviewData && reviewData.review_count > 0 && (
             <div className="rating-summary">
@@ -143,7 +167,11 @@ export default function ProductDetails({ productId }) {
           )}
           <p className="details-price">{money(product.price)}</p>
           <p className="details-description">{product.description || "No description available."}</p>
-          <p><strong>Availability:</strong> <span className={inStock ? "in-stock" : "out-of-stock"}>{inStock ? `${product.stock} in stock` : "Out of stock"}</span></p>
+          <div className="product-info-metrics">
+            <p><strong>Product ID:</strong> #{product.product_id}</p>
+            <p><strong>Sold:</strong> <span className="sold-value">{product.sold_quantity ?? 0}</span> units</p>
+            <p><strong>Availability:</strong> <span className={inStock ? "in-stock" : "out-of-stock"}>{inStock ? `${product.stock} in stock` : "Out of stock"}</span></p>
+          </div>
           {product.seller_name && <p className="seller-info"><strong>Sold by:</strong> {product.seller_name}</p>}
 
           {inStock ? (
@@ -189,19 +217,49 @@ export default function ProductDetails({ productId }) {
             )}
 
             {user?.role === "customer" && (
-              <form className="review-form" onSubmit={handleReviewSubmit}>
-                <h3>Write a review</h3>
-                <p className="hint">You can only review products you've purchased and received.</p>
-                <StarRating value={reviewForm.rating} onChange={(rating) => setReviewForm((f) => ({ ...f, rating }))} />
-                <textarea
-                  placeholder="Share your experience with this product…"
-                  value={reviewForm.comment}
-                  onChange={(event) => setReviewForm((f) => ({ ...f, comment: event.target.value }))}
-                  rows={3}
-                />
-                {reviewError && <p className="message error">{reviewError}</p>}
-                <button type="submit" disabled={submittingReview}>{submittingReview ? "Posting…" : "Post review"}</button>
-              </form>
+              <div className="review-action-container">
+                {eligibilityLoading ? (
+                  <Spinner label="Checking review eligibility…" />
+                ) : eligibility?.eligible ? (
+                  <form className="review-form" onSubmit={handleReviewSubmit}>
+                    <h3>Write a review</h3>
+                    <p className="hint">Share your honest thoughts about this delivered product.</p>
+                    <StarRating value={reviewForm.rating} onChange={(rating) => setReviewForm((f) => ({ ...f, rating }))} />
+                    <textarea
+                      placeholder="Share your experience with this product…"
+                      value={reviewForm.comment}
+                      onChange={(event) => setReviewForm((f) => ({ ...f, comment: event.target.value }))}
+                      rows={3}
+                    />
+                    {reviewError && <p className="message error">{reviewError}</p>}
+                    <button type="submit" disabled={submittingReview}>{submittingReview ? "Posting…" : "Post review"}</button>
+                  </form>
+                ) : eligibility?.reason === "already_reviewed" ? (
+                  <div className="review-notice info">
+                    <span className="notice-icon">✓</span>
+                    <div>
+                      <strong>Review already submitted</strong>
+                      <p>You have already reviewed this product. Each customer can submit only one review per product.</p>
+                    </div>
+                  </div>
+                ) : eligibility?.reason === "not_delivered" ? (
+                  <div className="review-notice warning">
+                    <span className="notice-icon">📦</span>
+                    <div>
+                      <strong>Order Not Delivered Yet</strong>
+                      <p>You ordered this product, but you can only submit a review after your order has been delivered.</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="review-notice neutral">
+                    <span className="notice-icon">🛍️</span>
+                    <div>
+                      <strong>Verified buyers only</strong>
+                      <p>You can review this product only if you have purchased it and the order has been delivered.</p>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </>
         )}

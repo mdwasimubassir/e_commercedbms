@@ -60,16 +60,23 @@ exports.createReview = async (req, res) => {
         }
 
         const purchaseResult = await client.query(
-            `SELECT 1
+            `SELECT o.order_id, o.status, o.delivery_status
              FROM orders o
              INNER JOIN order_items oi ON oi.order_id = o.order_id
-             WHERE o.customer_id = $1 AND oi.product_id = $2
-             LIMIT 1`,
+             WHERE o.customer_id = $1 AND oi.product_id = $2`,
             [req.user.sub, productId]
         );
         if (purchaseResult.rowCount === 0) {
             await rollback(client);
             return res.status(403).json({ message: "You can only review products you have purchased." });
+        }
+
+        const isDelivered = purchaseResult.rows.some(
+            (o) => o.status === "Delivered" || o.delivery_status === "delivered"
+        );
+        if (!isDelivered) {
+            await rollback(client);
+            return res.status(403).json({ message: "You can only review this product after your order has been delivered." });
         }
 
         const duplicateResult = await client.query(
@@ -93,9 +100,69 @@ exports.createReview = async (req, res) => {
         return res.status(201).json({ message: "Review created successfully.", review: result.rows[0] });
     } catch (error) {
         await rollback(client);
+        if (error.code === "23505") {
+            return res.status(409).json({ message: "You have already reviewed this product." });
+        }
         return sendReviewError(error, res);
     } finally {
         client.release();
+    }
+};
+
+exports.checkReviewEligibility = async (req, res) => {
+    if (!requireCustomer(req, res)) return;
+    const { productId } = req.params;
+    if (!isValidId(productId)) return res.status(400).json({ message: "productId must be a positive integer." });
+
+    try {
+        const duplicateResult = await pool.query(
+            "SELECT review_id, rating, comment FROM reviews WHERE customer_id = $1 AND product_id = $2 LIMIT 1",
+            [req.user.sub, productId]
+        );
+        if (duplicateResult.rowCount > 0) {
+            return res.status(200).json({
+                eligible: false,
+                reason: "already_reviewed",
+                message: "You have already reviewed this product.",
+                review: duplicateResult.rows[0]
+            });
+        }
+
+        const purchaseResult = await pool.query(
+            `SELECT o.order_id, o.status, o.delivery_status
+             FROM orders o
+             INNER JOIN order_items oi ON oi.order_id = o.order_id
+             WHERE o.customer_id = $1 AND oi.product_id = $2`,
+            [req.user.sub, productId]
+        );
+
+        if (purchaseResult.rowCount === 0) {
+            return res.status(200).json({
+                eligible: false,
+                reason: "not_ordered",
+                message: "You can only review products you have purchased."
+            });
+        }
+
+        const isDelivered = purchaseResult.rows.some(
+            (o) => o.status === "Delivered" || o.delivery_status === "delivered"
+        );
+
+        if (!isDelivered) {
+            return res.status(200).json({
+                eligible: false,
+                reason: "not_delivered",
+                message: "You can only review this product after your order has been delivered."
+            });
+        }
+
+        return res.status(200).json({
+            eligible: true,
+            reason: null,
+            message: "You are eligible to review this product."
+        });
+    } catch (error) {
+        return sendReviewError(error, res);
     }
 };
 

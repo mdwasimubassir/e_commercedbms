@@ -136,7 +136,8 @@ exports.getAdminProducts = async (req, res) => {
                 s.seller_id,
                 s.name AS seller_name,
                 s.email AS seller_email,
-                (SELECT COUNT(1)::int FROM order_items oi WHERE oi.product_id = p.product_id) AS order_count
+                (SELECT COUNT(1)::int FROM order_items oi WHERE oi.product_id = p.product_id) AS order_count,
+                COALESCE(get_product_sold_quantity(p.product_id), 0) AS sold_quantity
             FROM products p
             INNER JOIN categories c ON c.category_id = p.category_id
             INNER JOIN sellers s ON s.seller_id = p.seller_id

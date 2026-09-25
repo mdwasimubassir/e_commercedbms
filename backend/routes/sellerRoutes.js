@@ -11,6 +11,7 @@ router.post("/products", sellerController.createSellerProduct);
 router.put("/products/:productId", sellerController.updateSellerProduct);
 router.delete("/products/:productId", sellerController.deleteSellerProduct);
 router.get("/orders", sellerController.getSellerOrders);
+router.get("/revenue", sellerController.getSellerRevenue);
 router.put("/orders/:orderId/status", sellerController.updateSellerOrderStatus);
 router.get("/deliverymen/available", sellerController.getAvailableDeliverymen);
 router.post("/orders/:orderId/delivery-requests", sellerController.sendDeliveryRequest);

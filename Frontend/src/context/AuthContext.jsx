@@ -12,10 +12,8 @@ export function AuthProvider({ children }) {
     }
 
     window.addEventListener("auth:change", handleAuthSync);
-    window.addEventListener("storage", handleAuthSync);
     return () => {
       window.removeEventListener("auth:change", handleAuthSync);
-      window.removeEventListener("storage", handleAuthSync);
     };
   }, []);
 

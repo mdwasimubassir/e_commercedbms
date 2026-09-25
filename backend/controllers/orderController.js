@@ -64,107 +64,53 @@ exports.createOrder = async (req, res) => {
     const validationError = validateCheckout(req.body);
     if (validationError) return res.status(400).json({ message: validationError });
 
+    const coordinates = getDeliveryCoordinates(req.body);
     const client = await pool.connect();
     try {
         await client.query("BEGIN");
-        const cartResult = await client.query(
-            "SELECT cart_id FROM carts WHERE customer_id = $1 FOR UPDATE",
-            [req.user.sub]
-        );
-        if (cartResult.rowCount === 0) {
-            await rollback(client);
-            return res.status(404).json({ message: "Cart not found." });
-        }
 
-        const cartId = cartResult.rows[0].cart_id;
-        const cartItemsResult = await client.query(
-            `SELECT
-                ci.cart_item_id,
-                ci.product_id,
-                ci.quantity,
-                p.name AS product_name,
-                p.image AS product_image,
-                p.price,
-                p.stock,
-                p.seller_id
-             FROM cart_items ci
-             INNER JOIN products p ON p.product_id = ci.product_id
-             WHERE ci.cart_id = $1
-             FOR UPDATE OF ci, p`,
-            [cartId]
+        // CSE216 Stored Procedure 2: process_order_checkout
+        const callResult = await client.query(
+            "CALL process_order_checkout($1, $2, $3, $4, $5, NULL, NULL)",
+            [
+                req.user.sub,
+                req.body.payment_method.trim(),
+                req.body.shipping_address.trim(),
+                coordinates.latitude,
+                coordinates.longitude
+            ]
         );
-        if (cartItemsResult.rowCount === 0) {
-            await rollback(client);
-            return res.status(400).json({ message: "Cart is empty." });
-        }
+        const orderId = callResult.rows[0].p_order_id;
 
-        // Consolidate defensively in case legacy data contains duplicate cart rows.
-        const itemsByProduct = new Map();
-        for (const item of cartItemsResult.rows) {
-            const quantity = Number(item.quantity);
-            if (!Number.isSafeInteger(quantity) || quantity <= 0) {
-                await rollback(client);
-                return res.status(400).json({ message: "Cart contains an invalid item quantity." });
-            }
-            const existingItem = itemsByProduct.get(String(item.product_id));
-            if (existingItem) {
-                existingItem.quantity += quantity;
-            } else {
-                itemsByProduct.set(String(item.product_id), { ...item, quantity });
-            }
-        }
-        const cartItems = [...itemsByProduct.values()];
-        for (const item of cartItems) {
-            if (item.quantity > item.stock) {
-                await rollback(client);
-                return res.status(409).json({ message: `Insufficient stock for product ${item.product_id}.` });
-            }
-        }
-
-        const totalResult = await client.query(
-            `SELECT COALESCE(SUM(p.price * ci.quantity), 0) AS total_amount
-             FROM cart_items ci
-             INNER JOIN products p ON p.product_id = ci.product_id
-             WHERE ci.cart_id = $1`,
-            [cartId]
-        );
-        const totalAmount = totalResult.rows[0].total_amount;
-        const coordinates = getDeliveryCoordinates(req.body);
         const orderResult = await client.query(
-            `INSERT INTO orders (order_date, total_amount, payment_method, shipping_address, delivery_latitude, delivery_longitude, status, customer_id)
-             VALUES (CURRENT_DATE, $1, $2, $3, $4, $5, 'Pending', $6)
-             RETURNING order_id, order_date, total_amount, payment_method, shipping_address, delivery_latitude, delivery_longitude, status, customer_id`,
-            [totalAmount, req.body.payment_method.trim(), req.body.shipping_address.trim(), coordinates.latitude, coordinates.longitude, req.user.sub]
+            `SELECT order_id, order_date, total_amount, payment_method, shipping_address, delivery_latitude, delivery_longitude, status, customer_id
+             FROM orders
+             WHERE order_id = $1`,
+            [orderId]
         );
         const order = orderResult.rows[0];
-        const createdItems = [];
 
-        for (const item of cartItems) {
-            const orderItemResult = await client.query(
-                `INSERT INTO order_items (quantity, price, order_id, product_id)
-                 VALUES ($1, $2, $3, $4)
-                 RETURNING order_item_id, quantity, price, order_id, product_id`,
-                [item.quantity, item.price, order.order_id, item.product_id]
-            );
-            await client.query(
-                "UPDATE products SET stock = stock - $1 WHERE product_id = $2",
-                [item.quantity, item.product_id]
-            );
-            const orderItem = orderItemResult.rows[0];
-            createdItems.push({
-                ...orderItem,
-                product_name: item.product_name,
-                product_image: item.product_image,
-                subtotal: calculateSubtotal(item.price, item.quantity)
-            });
-        }
+        const itemsResult = await client.query(
+            `SELECT oi.order_item_id, oi.quantity, oi.price, oi.order_id, oi.product_id,
+                    p.name AS product_name, p.image AS product_image,
+                    (oi.price * oi.quantity) AS subtotal
+             FROM order_items oi
+             JOIN products p ON p.product_id = oi.product_id
+             WHERE oi.order_id = $1
+             ORDER BY oi.order_item_id`,
+            [orderId]
+        );
+        const createdItems = itemsResult.rows.map((row) => ({
+            order_item_id: row.order_item_id,
+            quantity: row.quantity,
+            price: row.price,
+            order_id: row.order_id,
+            product_id: row.product_id,
+            product_name: row.product_name,
+            product_image: row.product_image,
+            subtotal: calculateSubtotal(row.price, row.quantity)
+        }));
 
-        await client.query("DELETE FROM cart_items WHERE cart_id = $1", [cartId]);
-        const sellerIds = new Set(cartItems.map((item) => String(item.seller_id)));
-        for (const sellerId of sellerIds) {
-            await createSellerNotification(client, sellerId, `New order received: Order #${order.order_id}`);
-        }
-        await createAdminNotification(client, `New order placed: Order #${order.order_id} totaling $${Number(order.total_amount).toFixed(2)}.`);
         await client.query("COMMIT");
         eventService.broadcast("notification_sent", { role: "admin" });
         eventService.broadcast("order_updated", { orderId: order.order_id, status: "Pending" });
@@ -172,6 +118,18 @@ exports.createOrder = async (req, res) => {
         return res.status(201).json({ message: "Order created successfully.", order, items: createdItems });
     } catch (error) {
         await rollback(client);
+        if (error.code === "P0002" || (error.message && error.message.includes("Cart not found"))) {
+            return res.status(404).json({ message: "Cart not found." });
+        }
+        if (error.code === "P0003" || (error.message && error.message.includes("Cart is empty"))) {
+            return res.status(400).json({ message: "Cart is empty." });
+        }
+        if (error.code === "P0004" || (error.message && error.message.includes("Insufficient stock"))) {
+            return res.status(409).json({ message: error.message });
+        }
+        if (error.code === "P0005" || (error.message && error.message.includes("Cart contains an invalid item quantity"))) {
+            return res.status(400).json({ message: "Cart contains an invalid item quantity." });
+        }
         return sendOrderError(error, res);
     } finally {
         client.release();
@@ -278,39 +236,12 @@ exports.cancelOrder = async (req, res) => {
     const client = await pool.connect();
     try {
         await client.query("BEGIN");
-        const orderResult = await client.query(
-            `SELECT order_id, order_date, total_amount, payment_method, shipping_address, delivery_latitude, delivery_longitude, status
-             FROM orders
-             WHERE order_id = $1 AND customer_id = $2
-             FOR UPDATE`,
-            [orderId, req.user.sub]
-        );
-        if (orderResult.rowCount === 0) {
-            await rollback(client);
-            return res.status(404).json({ message: "Order not found." });
-        }
-        if (orderResult.rows[0].status !== "Pending") {
-            await rollback(client);
-            return res.status(409).json({ message: "Only Pending orders can be cancelled." });
-        }
 
-        const itemsResult = await client.query(
-            `SELECT oi.product_id, oi.quantity
-             FROM order_items oi
-             INNER JOIN products p ON p.product_id = oi.product_id
-             WHERE oi.order_id = $1
-             FOR UPDATE OF oi, p`,
-            [orderId]
-        );
-        for (const item of itemsResult.rows) {
-            await client.query(
-                "UPDATE products SET stock = stock + $1 WHERE product_id = $2",
-                [item.quantity, item.product_id]
-            );
-        }
+        // CSE216 Stored Procedure 1: cancel_order_procedure
+        await client.query("CALL cancel_order_procedure($1, $2)", [orderId, req.user.sub]);
 
         const cancelledOrder = await client.query(
-            "UPDATE orders SET status = 'Cancelled' WHERE order_id = $1 RETURNING order_id, order_date, total_amount, payment_method, shipping_address, delivery_latitude, delivery_longitude, status",
+            "SELECT order_id, order_date, total_amount, payment_method, shipping_address, delivery_latitude, delivery_longitude, status FROM orders WHERE order_id = $1",
             [orderId]
         );
         await client.query("COMMIT");
@@ -319,6 +250,12 @@ exports.cancelOrder = async (req, res) => {
         return res.status(200).json({ message: "Order cancelled successfully.", order: cancelledOrder.rows[0] });
     } catch (error) {
         await rollback(client);
+        if (error.code === "P0002" || (error.message && error.message.includes("Order not found"))) {
+            return res.status(404).json({ message: "Order not found." });
+        }
+        if (error.code === "P0001" || (error.message && error.message.includes("Only Pending orders can be cancelled"))) {
+            return res.status(409).json({ message: "Only Pending orders can be cancelled." });
+        }
         return sendOrderError(error, res);
     } finally {
         client.release();

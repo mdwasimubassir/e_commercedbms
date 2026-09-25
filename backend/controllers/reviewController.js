@@ -109,9 +109,7 @@ exports.getProductReviews = async (req, res) => {
 
         const [summaryResult, reviewsResult] = await Promise.all([
             pool.query(
-                `SELECT COUNT(*) AS review_count, COALESCE(ROUND(AVG(rating), 2), 0) AS average_rating
-                 FROM reviews
-                 WHERE product_id = $1`,
+                "SELECT review_count, average_rating, five_star_count, four_star_count, three_star_count, two_star_count, one_star_count FROM get_product_rating_stats($1)",
                 [productId]
             ),
             pool.query(
@@ -126,8 +124,13 @@ exports.getProductReviews = async (req, res) => {
         const summary = summaryResult.rows[0];
         return res.status(200).json({
             product_id: productResult.rows[0].product_id,
-            review_count: Number(summary.review_count),
-            average_rating: Number(summary.average_rating),
+            review_count: Number(summary.review_count || 0),
+            average_rating: Number(summary.average_rating || 0),
+            five_star_count: Number(summary.five_star_count || 0),
+            four_star_count: Number(summary.four_star_count || 0),
+            three_star_count: Number(summary.three_star_count || 0),
+            two_star_count: Number(summary.two_star_count || 0),
+            one_star_count: Number(summary.one_star_count || 0),
             reviews: reviewsResult.rows
         });
     } catch (error) {

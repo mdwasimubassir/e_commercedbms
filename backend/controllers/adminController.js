@@ -15,6 +15,7 @@ function publicSeller(row) {
         approval_status: row.approval_status,
         suspended_until: row.suspended_until,
         product_count: Number(row.product_count || 0),
+        total_revenue: Number(row.total_revenue || 0),
         created_at: row.created_at
     };
 }
@@ -285,7 +286,8 @@ exports.getSellers = async (req, res) => {
         const result = await pool.query(`
             SELECT
                 s.seller_id, s.name, s.email, s.phone, s.approval_status, s.suspended_until, s.created_at,
-                COUNT(p.product_id)::int AS product_count
+                COUNT(p.product_id)::int AS product_count,
+                get_seller_total_revenue(s.seller_id) AS total_revenue
             FROM sellers s
             LEFT JOIN products p ON p.seller_id = s.seller_id
             GROUP BY s.seller_id

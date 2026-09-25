@@ -1,5 +1,7 @@
-// Small helpers for reading/writing the signed-in user + JWT in localStorage.
-// Kept separate from authService.js so api.js can import it without a cycle.
+// Session-based auth helpers for reading/writing the signed-in user + JWT in sessionStorage.
+// Scoped to the current tab/window so:
+// 1. New tabs or copy-pasting the link opens the default guest dashboard without auto-login.
+// 2. Closing the browser/tab clears the session automatically.
 const TOKEN_KEY = "ecommerce_auth_token";
 const USER_KEY = "ecommerce_auth_user";
 const SESSION_INTENT_KEY = "ecommerce_auth_session_intent";
@@ -48,12 +50,14 @@ export function isTokenValid(token) {
 
 export function clearStoredAuth() {
   try {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
-    localStorage.removeItem(SESSION_INTENT_KEY);
     sessionStorage.removeItem(TOKEN_KEY);
     sessionStorage.removeItem(USER_KEY);
     sessionStorage.removeItem(SESSION_INTENT_KEY);
+    if (typeof localStorage !== "undefined") {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+      localStorage.removeItem(SESSION_INTENT_KEY);
+    }
   } catch {
     // Ignore storage access errors
   }
@@ -61,7 +65,16 @@ export function clearStoredAuth() {
 
 export function getStoredToken() {
   try {
-    const token = localStorage.getItem(TOKEN_KEY);
+    // Clean any legacy persistent localStorage auth on sight
+    if (typeof localStorage !== "undefined" && localStorage.getItem(TOKEN_KEY)) {
+      try {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(USER_KEY);
+        localStorage.removeItem(SESSION_INTENT_KEY);
+      } catch (_) {}
+    }
+
+    const token = sessionStorage.getItem(TOKEN_KEY);
     if (!token) return null;
     if (!isTokenValid(token)) {
       clearStoredAuth();
@@ -81,11 +94,8 @@ export function getStoredUser() {
       return null;
     }
 
-    const raw = localStorage.getItem(USER_KEY);
-    // Older builds accepted any pre-existing token/user pair, including a
-    // browser value injected by demo code or previous development sessions.
-    // Only a successful interactive login writes this marker.
-    if (!raw || localStorage.getItem(SESSION_INTENT_KEY) !== "interactive-login") {
+    const raw = sessionStorage.getItem(USER_KEY);
+    if (!raw || sessionStorage.getItem(SESSION_INTENT_KEY) !== "interactive-login") {
       clearStoredAuth();
       return null;
     }
@@ -122,9 +132,17 @@ export function setStoredAuth(token, user) {
       clearStoredAuth();
       return;
     }
-    localStorage.setItem(TOKEN_KEY, token);
-    localStorage.setItem(USER_KEY, JSON.stringify(user));
-    localStorage.setItem(SESSION_INTENT_KEY, "interactive-login");
+    // Save to tab-specific sessionStorage only
+    sessionStorage.setItem(TOKEN_KEY, token);
+    sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+    sessionStorage.setItem(SESSION_INTENT_KEY, "interactive-login");
+
+    // Ensure localStorage never keeps credentials across tabs or browser restarts
+    if (typeof localStorage !== "undefined") {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+      localStorage.removeItem(SESSION_INTENT_KEY);
+    }
   } catch {
     // Ignore storage quota errors
   }

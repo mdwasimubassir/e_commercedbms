@@ -335,3 +335,16 @@ exports.updateSellerOrderStatus = async (req, res) => {
         client.release();
     }
 };
+
+exports.getSellerRevenue = async (req, res) => {
+    if (!requireSeller(req, res)) return;
+    try {
+        const result = await pool.query(
+            "SELECT get_seller_total_revenue($1) AS total_revenue",
+            [req.user.sub]
+        );
+        return res.status(200).json({ total_revenue: Number(result.rows[0]?.total_revenue || 0) });
+    } catch (error) {
+        return sendSellerError(error, res);
+    }
+};

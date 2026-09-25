@@ -12,16 +12,22 @@ Seller registers → account is `pending` → admin signs in and opens `/admin` 
 
 ## Database setup
 
-For a new database, load `database/schema.sql`.
-
-For an existing development database, run the compatibility migration once (existing sellers are kept and treated as approved):
+Start the PostgreSQL service and create the database named by `DB_NAME` in `backend/.env`. For a new database, load the base schema from the repository root:
 
 ```powershell
-psql -d your_database_name -f database/migrations/001_admin_and_seller_approval.sql
-psql -d your_database_name -f database/migrations/002_order_delivery_location.sql
-psql -d your_database_name -f database/migrations/003_deliveryman_system.sql
-psql -d your_database_name -f database/migrations/004_delivery_requests.sql
+psql -d your_database_name -f database/schema.sql
 ```
+
+Replace `your_database_name` with the value of `DB_NAME`.
+
+Set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, and `JWT_SECRET` in `backend/.env` (see `backend/.env.example`). From `backend`, apply every migration not already recorded in `schema_migrations`:
+
+```powershell
+npm install
+npm run migrate
+```
+
+This applies the later compatibility changes needed by current APIs, including product status, suspension fields, and cross-role email uniqueness. Existing user and product records are preserved.
 
 ## Create the first admin
 
@@ -44,28 +50,22 @@ All endpoints require an authenticated JWT whose role is `admin`:
 - `PATCH /api/admin/sellers/:sellerId/approve`
 - `PATCH /api/admin/sellers/:sellerId/reject`
 
-## Run and check
+## Run locally
 
 ```powershell
-cd backend
-npm install
+cd "C:\path\to\e_commercedbms\backend"
 node server.js
 
 # in another terminal
-cd Frontend
-npm install
-npm run build
-```
-OR/
-
-Terminal 1 — Backend
-cd "C:\2-1 code\e_commercedbms_RECOVERED\backend"
-npm install
-node server.js
-
-Terminal 2 — Frontend
-cd "C:\2-1 code\e_commercedbms_RECOVERED\Frontend"
+cd "C:\path\to\e_commercedbms\Frontend"
 npm install
 npm run dev
+```
+
+Open the Vite URL shown in the frontend terminal (normally `http://localhost:5173`). The frontend's `VITE_API_URL=http://localhost:3000` setting uses the Vite `/api` proxy during local development.
 Manual flow: register a seller, sign in as the seeded admin, approve/reject in `/admin`, then log in as that seller and open Notifications. Approved sellers can access seller screens; pending/rejected sellers receive a backend `403` for every `/api/seller/*` request.
+<<<<<<< Updated upstream
 //last//
+=======
+//last
+>>>>>>> Stashed changes

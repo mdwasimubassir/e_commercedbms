@@ -34,7 +34,9 @@ async function runMigrations() {
 
             console.log(`[apply] Executing migration: ${file}...`);
             const filePath = path.join(migrationsDir, file);
-            const sql = fs.readFileSync(filePath, "utf8");
+            // Some SQL files are saved as UTF-8 with a BOM. PostgreSQL treats
+            // that marker as part of the first token and rejects the migration.
+            const sql = fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
 
             await client.query("BEGIN");
             await client.query(sql);

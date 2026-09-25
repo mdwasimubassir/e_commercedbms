@@ -206,7 +206,7 @@ export default function DeliveryDashboard() {
             <strong>{me.phone || "—"}</strong>
           </div>
           <div className="profile-info-item">
-            <span className="info-label">Delivery Area</span>
+            <span className="info-label">Deliveryman home address</span>
             <strong>{me.delivery_location || "Bangladesh"}</strong>
           </div>
           <div className="profile-info-item">

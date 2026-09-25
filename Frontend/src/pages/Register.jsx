@@ -41,7 +41,7 @@ export default function Register() {
       <p className="subtext">Register as a customer, seller, or deliveryman.</p>
       <form onSubmit={submit} noValidate>
         <RoleSelector value={form.role} onChange={(role) => update("role", role)} />
-        {form.role === "deliveryman" && <label>Delivery area <input type="text" value={form.delivery_location || ""} onChange={(event) => update("delivery_location", event.target.value)} maxLength="250" placeholder="e.g. Dhaka" /></label>}
+        {form.role === "deliveryman" && <label>Deliveryman home address <input type="text" value={form.delivery_location || ""} onChange={(event) => update("delivery_location", event.target.value)} maxLength="250" placeholder="e.g. Dhaka" /></label>}
         <label>Full name<input type="text" value={form.name} onChange={(event) => update("name", event.target.value)} autoComplete="name" maxLength="150" required /></label>
         <label>Email<input type="email" value={form.email} onChange={(event) => update("email", event.target.value)} autoComplete="email" required /></label>
         <label>Phone<input type="tel" value={form.phone} onChange={(event) => update("phone", event.target.value)} autoComplete="tel" maxLength="30" required /></label>
